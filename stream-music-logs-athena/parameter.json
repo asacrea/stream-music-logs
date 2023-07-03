@@ -1,0 +1,22 @@
+[
+    {
+      "ParameterKey": "pDirsToCreate",
+      "ParameterValue": "source,stage,transform,error,archive"
+    },
+    {
+      "ParameterKey": "pS3BucketName",
+      "ParameterValue": "music-stream-datalake"
+    },
+    {
+      "ParameterKey": "pSourceFolder",
+      "ParameterValue": "source"
+    },
+    {
+      "ParameterKey": "pStageFolder",
+      "ParameterValue": "stage"
+    },
+    {
+      "ParameterKey": "pEmailforNotification",
+      "ParameterValue": "sacreandres@gmail.com" 
+    }
+  ]
