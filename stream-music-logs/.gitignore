@@ -1,0 +1,16 @@
+__pycache__
+.env
+# Ignore all files and directories in the environment directory
+/environment/*
+
+# But allow the etlfactory directory to be tracked
+!/environment/python/etlfactory
+samconfig.toml
+test_delete/
+
+#PDF files
+*.pdf
+
+#Exclude local testing
+/local/*
+#Exclude local testing

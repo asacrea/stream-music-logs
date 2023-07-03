@@ -1,0 +1,36 @@
+version: "3.7"
+services:
+  eventsim:
+    hostname: eventsim
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.5
+    stdin_open: true
+    tty: true
+    container_name: eventsim
+    build:
+      context: .
+    entrypoint: './entrypoint.sh'
+    env_file:
+      - 'minio.env'
+    networks:
+      - eventsim-network
+  minio:
+    image: 'minio/minio:latest'
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.5
+    hostname: minio
+    container_name: minio
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    env_file:
+      - 'minio.env'
+    command: server --console-address ":9001" /data
+    networks:
+      - eventsim-network
+
+networks:
+  eventsim-network:
+    driver: bridge
