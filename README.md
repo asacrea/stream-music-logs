@@ -74,7 +74,7 @@ wait  # Wait for all threads to finish
 ```
 
 
-2. In the case of Minio, I decided to choose S3 as the data warehouse to run the tests, but not first without exploring Minio and getting a better understanding of how it interfaced with Eventsim and Fluend. For these it was necessary to make a small correction, which at least using Mac, had to be done. In the most stable version for Debian distributions, the credentials configuration changed from:
+2. In the case of Minio, I decided to choose S3 as the data warehouse to run the tests, but not first without exploring Minio and getting a better understanding of how it is interfaced with Eventsim and Fluentd. For this reason it was necessary to make a small correction, which at least using Mac, had to be done. In the most stable version for Debian distributions, the credentials configuration changed from:
 
 ```bash
 MINIO_ACCESS_KEY=minio_user
@@ -91,7 +91,7 @@ MINIO_REGION=us-east-1
 
 3. Fluentd sends the event logs as JSON files to a storage solution, either Minio Cluster or S3.
 
-As I explored Fluentd in more detail, I understood that Fluentd is a flexible log collector that can collect logs from various sources, perform data transformations and route them to different destinations. However, if you send the data directly from Fluentd to an S3 bucket, you will be responsible for ensuring the reliability and scalability of the data pipeline. You will have to deal with potential problems such as network failures, retries, buffering and managing the scalability of the infrastructure. For these reasons I made the decision to make use of both tools and take advantage of the benefits of each, as Kinesis Firehose is a self-managed, self-scalable tool that makes it easier for us to deploy the solution and generate a more robust proposition.
+As I explored Fluentd in more detail, I understood that Fluentd is a flexible log collector that can collect logs from various sources, perform data transformations and route them to different destinations. However, if you send the data directly from Fluentd to an S3 bucket, you will be responsible for ensuring the reliability and scalability of the data pipeline. You will have to deal with potential problems such as network failures, retries, buffering and managing the scalability of the infrastructure. For these reasons I made the decision to use both tools and take advantage of the benefits of each, as Kinesis Firehose is a self-managed, self-scalable tool that makes it easier for us to deploy the solution and generate a more robust proposition.
 
 To make the connection with S3, the existing connection with minio was replaced by adding a plugin that would allow this communication. The code to do this is as follows:
 
@@ -129,7 +129,7 @@ To make the connection with S3, the existing connection with minio was replaced 
 
 5. AWS Step Functions orchestrate the ETL workflow, coordinating the execution of various AWS Glue crawlers, Glue jobs and Lambda functions.
 
-For this implementation, we proposed the development of a simple state machine to perform data exploration and catalogue generation for both raw data and data that underwent transformation by glue jobs. The Step Functions also allows us to monitor the state of the Crawlers and determine if it has finished its execution in order to continue with the flow towards the transformation of the data using the Glue Jobs.
+For this implementation, I proposed the development of a simple state machine to perform data exploration and catalogue generation for both raw data and data that underwent transformation by glue jobs. The Step Functions also allows us to monitor the state of the Crawlers and determine if it has finished its execution in order to continue with the flow towards the transformation of the data using the Glue Jobs.
 
 ![Logo de Markdown](images/StepFunction.png)
 
@@ -300,7 +300,7 @@ GROUP BY city
 ORDER BY total_visits DESC;
 ```
 
-• What are the most listened to songs in a period of time?
+• What are the most listened songs in a period of time?
 
  
 ```sql
@@ -321,7 +321,7 @@ GROUP BY userid, firstName
 ORDER BY total_listening_hours DESC;
 ```
 
-• What are the two most listened to songs per person in a period of time?
+• What are the two most listened songs per person in a period of time?
 
 ```sql
 SELECT userid, full_name, duration, song_user_rankinkg
@@ -336,7 +336,7 @@ WHERE song_user_rankinkg <= 2
 
 For data modeling, the technology or service that was going to be used had to be taken into account, since generating a model for a serverless database (Athena) can be vastly different from one based on servers such as Redshift. While serverless tries to exploit the way of storing data in objects and their prefix structure that allows them to filter on them, servers are optimized to work better with indexes and normalized relational models that allow them to easily navigate their object structures. data such as hash tables and b-trees
 
-In the case of the server technologies, the design of the data warehouse I thought it was based on the Kimbal model due to its simplicity and ease of understanding, the optimized performance for queries and its orientation towards the end user, since this is focused on the delivery of practical and relevant information for decision making. decisions, which is a key aspect in a BI area.
+In the case of the server technologies, the design of the data warehouse It was based on the Kimbal model due to its simplicity and ease of understanding, the optimized performance for queries and its orientation towards the end user, since this is focused on the delivery of practical and relevant information for decision making. decisions, which is a key aspect in a BI area.
 
 The star schema offers a simpler and more denormalized structure, while the snowflake schema provides a more normalized and complex structure with improved data integrity and potentially better space efficiency. The choice between the two depends on factors such as the complexity of the data, query performance requirements, and the trade-off between simplicity and normalization.
 
@@ -346,7 +346,7 @@ These are some of the common types of fact tables in a data warehouse. The choic
 
 ![Logo de Markdown](images/Datawarehouse.png)
 
-For the design of the serverless database, which was the model that was chosen to develop this project, its design was thought about hierarchies and the way to group the data that would best allow filtering, so that when executing a query it is filtered. as much information as possible. The structure that was designed was the following:
+For the design of the serverless database, which was the model that was chosen to develop this project, its design was thought about hierarchies and the way to group the data that would best allow filtering, so when executing a query it is filtered. as much information as possible. The structure that was designed was the following:
 
 ```python
 s3://my-music-data/music_data_partitioned/
