@@ -17,6 +17,7 @@ The solution will be designed to:
 * Data Lake Resilience: The raw event log files stored in the data lake may disappear after processing. The solution should consider this possibility and accommodate future processing needs if required.
 * Data Analysis: The specific analytical questions mentioned in the introduction (e.g., user locations, popular songs, music consumption hours) are not the primary focus of this exercise. The solution aims to provide a scalable infrastructure to enable such analysis but does not need to answer those specific questions.
 * Local Development Containerization: If developing the solution locally, it should be containerized to ensure consistency and reproducibility. Containerization technologies like Docker can be utilized for this purpose.
+* The work was divided into two folders, each with a different solution to the problem. The solution that was carried out to fulfill the purposes of this project is inside the "stream-music-logs-athena" folder.
 
 ### Solution Overview
 
@@ -32,6 +33,8 @@ The solution will leverage various AWS services to build a scalable and cost-eff
 8. AWS Athena as Database: The data warehouse that will store the transformed data and enable SQL queries for analysis.
 
 ### Solution Architecture
+
+![Logo de Markdown](images/Cloud_Architechture.png)
 
 The solution architecture consists of the following components and steps:
 
@@ -465,6 +468,37 @@ To delete the sample application that you created, use the AWS CLI. Assuming you
 ```bash
 aws cloudformation delete-stack --stack-name stream-music-logs
 ```
+
+### Future Work
+The work was divided into two folders, each with a different solution to the problem. The solution that was carried out to fulfill the purposes of this project is inside the "stream-music-logs-athena" folder, but it was possible to work on an alternative solution that will be briefly explained below.
+
+The first application focused on the use of AWS Kinesis, on the use of Glue to perform the ETL tasks and AWS Athena to simulate the DataWarehouse. But an alternative version can be proposed where instead of using AWS Kinesis, AWS Fargate is used to ingest and transmit the information, using custom lambdas within a custom module codified with the Factory design pattern, so that new ETL functions can be included, and finally make use of Redshift instead of using Athena. The design to deploy the solution with Athena was already described in the data model definition. It seeks to build an OLAP relational database, with the purpose of improving and accelerating the data analysis process in a scalable, reliable, and fault-tolerant manner.
+
+##### Dead Letter Q
+
+Additionally, it was also thought of developing a Dead Letter Q (DLQ), so that there is greater control and traceability of the records that enter the data pipeline, in order to mitigate the risk of loss of records without knowing it.
+
+The Dead Letter Queue (DLQ) is a message queue used in the ETL pipeline to handle messages that cannot be processed successfully. In this case, it is used to manage trigger requests generated when files are placed in an Amazon S3 bucket.
+ 
+The objective of the DLQ is to temporarily store undeliverable messages, providing a mechanism for further handling and debugging of processing issues.
+Operation
+When a file is placed in the S3 bucket, a trigger request is generated and sent to the ETL pipeline. If the trigger request cannot be processed successfully due to errors or exceptions, it is sent to the DLQ instead of being discarded entirely.
+
+###### Configuration
+Configuring the DLQ involves the following steps:
+1. Create a dedicated message queue for the DLQ in the messaging service used in the pipeline (e.g., Amazon SQS).
+2. Configure the ETL pipeline to send unprocessable trigger requests to the DLQ in case of errors or exceptions during processing.
+
+###### Monitoring and Management
+Monitoring and managing the DLQ include the following:
+
+1. Monitor the number of messages in the DLQ to identify potential issues or bottlenecks in processing.
+Set up alerts or notifications to receive notifications when the DLQ has a high number of pending messages.
+
+2. Implement mechanisms to handle and process the messages in the DLQ appropriately. This may include:
+  * Identifying and resolving the issues that caused the non-delivery.
+  * Analyzing and debugging the messages to address recurring problems.
+  * Retrying the processing of failed messages.
 
 ## Resources
 
