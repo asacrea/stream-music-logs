@@ -13,7 +13,10 @@ def lambda_handler(event, context):
     #Retrieve parameters
     the_bucket = event['ResourceProperties']['the_bucket']
     dirs_to_create = event['ResourceProperties']['dirs_to_create']
-
+    file_content = event['ResourceProperties']['file_content']
+    file_prefix = event['ResourceProperties']['file_prefix']
+    print("file_content is : " + file_content)
+    print("file_prefix is : " + file_prefix)
     try:
         if the_event in ('Create', 'Update'):
             print("Request folder:", str(dirs_to_create).split(","))

@@ -14,11 +14,6 @@ Parameters:
     Description: "Folder to store staging files"
     Default: "stage"
 
-  pTransformFolder:
-    Type: String
-    Description: "Folder to store transformed dataset"
-    Default: "transform"
-
   pSourceFolder:
     Type: String
     Description: "Source Folder to upload raw json dataset to trigger the AWS Step functions"
@@ -35,7 +30,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt LambdaFunctionS3Object.Arn
       the_bucket: !Ref S3Bucket
-      dirs_to_create: !Join [ ",", [!Ref pSourceFolder,!Ref pStageFolder,!Ref pTransformFolder]]
+      dirs_to_create: !Join [ ",", [!Ref pSourceFolder,!Ref pStageFolder]]
       file_prefix: "glue/gluejob.py"
       file_content: !Sub |
         import sys
@@ -117,101 +112,45 @@ Resources:
 
         job.commit()
 
-
-  StartCodeBuildProject:
-    Type: Custom::StartCodeBuildProject
-    Properties:
-      ServiceToken: !GetAtt StartCodeBuildProjectFunction.Arn
-      Update_lambda_layer: "yes"
-    DependsOn:
-      - "LambdaLayerParameter"
-
   KinesisFirehoseDeliveryStream:
     Type: AWS::KinesisFirehose::DeliveryStream
+    DependsOn: 
+      - S3CustomResource
     Properties:
       DeliveryStreamName: MusicDeliveryStream
       DeliveryStreamType: DirectPut
       S3DestinationConfiguration:
-        RoleARN: !GetAtt FirehoseIAMRole.Arn
-        BucketARN: !Sub "arn:aws:s3:::${BucketName}/raw"
+        RoleARN: !GetAtt FirehoseRole.Arn
+        BucketARN: !GetAtt S3Bucket.Arn 
         Prefix: ""
         BufferingHints:
           IntervalInSeconds: 300
           SizeInMBs: 5
         CompressionFormat: UNCOMPRESSED
 
-  FirehoseIAMRole:
+  FirehoseRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
               Service: firehose.amazonaws.com
             Action: sts:AssumeRole
-      ManagedPolicyArns:
-          - !Ref KinesisFirehoseServicePolicyPUTS3DeliveryStream
+      Policies:
+        - PolicyName: FirehoseS3WriteAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:Get*"
+                  - "s3:Put*"
+                  - "s3:Delete*"
+                Resource:
+                  - !Sub "arn:aws:s3:::${pS3BucketName}/*"
                   
-  KinesisFirehoseServicePolicyPUTS3DeliveryStream:
-    Type: "AWS::IAM::ManagedPolicy"
-    Properties:
-      Description: "These are policies which Firehose needs to work"
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: "s3"
-            Effect: Allow
-            Action:
-              - s3:AbortMultipartUpload
-              - s3:GetBucketLocation
-              - s3:GetObject
-              - s3:ListBucket
-              - s3:ListBucketMultipartUploads
-              - s3:PutObject
-            Resource:
-              - "arn:aws:s3:::de-streaming-test"
-              - "arn:aws:s3:::de-streaming-test/*"
-          - Sid: "kms"
-            Effect: Allow
-            Action:
-              - kms:GenerateDataKey
-              - kms:Decrypt
-            Resource:
-              - "arn:aws:kms:us-east-1:314684862517:key/%FIREHOSE_POLICY_TEMPLATE_PLACEHOLDER%"
-            Condition:
-              StringEquals:
-                kms:ViaService: "s3.us-east-1.amazonaws.com"
-              StringLike:
-                kms:EncryptionContext:aws:s3:arn:
-                  - "arn:aws:s3:::%FIREHOSE_POLICY_TEMPLATE_PLACEHOLDER%/*"
-                  - "arn:aws:s3:::%FIREHOSE_POLICY_TEMPLATE_PLACEHOLDER%"
-          - Sid: "cloudwatch"
-            Effect: Allow
-            Action:
-              - logs:PutLogEvents
-            Resource:
-              - "arn:aws:logs:us-east-1:314684862517:log-group:/aws/kinesisfirehose/PUT-S3-THtvd:log-stream:*"
-              - "arn:aws:logs:us-east-1:314684862517:log-group:%FIREHOSE_POLICY_TEMPLATE_PLACEHOLDER%:log-stream:*"
-          - Sid: "kinesisfirehose"
-            Effect: Allow
-            Action:
-              - kinesis:DescribeStream
-              - kinesis:GetShardIterator
-              - kinesis:GetRecords
-              - kinesis:ListShards
-            Resource: "arn:aws:kinesis:us-east-1:314684862517:stream/%FIREHOSE_POLICY_TEMPLATE_PLACEHOLDER%"
-          - Effect: Allow
-            Action:
-              - kms:Decrypt
-            Resource:
-              - "arn:aws:kms:us-east-1:314684862517:key/%FIREHOSE_POLICY_TEMPLATE_PLACEHOLDER%"
-            Condition:
-              StringEquals:
-                kms:ViaService: "kinesis.us-east-1.amazonaws.com"
-              StringLike:
-                kms:EncryptionContext:aws:kinesis:arn: "arn:aws:kinesis:us-east-1:314684862517:stream/%FIREHOSE_POLICY_TEMPLATE_PLACEHOLDER%"
-
   LambdaLayerParameter:
     Type: AWS::SSM::Parameter
     Properties:
@@ -292,7 +231,7 @@ Resources:
   ManagedPolicyforstepfunction:
     Type: "AWS::IAM::ManagedPolicy"
     Properties:
-      Description: "This is sample CFN template"
+      Description: "This is the StepFunction policy definition"
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -302,14 +241,6 @@ Resources:
             Resource:
               - !GetAtt  StartCrawlerFunction.Arn
               - !GetAtt  CrawlerStatusCheckFunction.Arn
-          - Sid: "s3putaccess"
-            Effect: "Allow"
-            Action: 
-              - "s3:Get*"
-              - "s3:Put*"
-              - "s3:Delete*"
-            Resource: 
-              - !GetAtt  StartETLFunction.Arn
           - Sid: "glueaccess"
             Effect: "Allow"
             Action:
@@ -331,6 +262,18 @@ Resources:
             Action:
               - sns:*
             Resource: '*'
+
+  LambdaFunctionS3Object:
+     Type: AWS::Serverless::Function
+     Properties:
+      Layers: 
+        - !Ref LambdaLayerCfn
+      Description: "Work with S3 Buckets!"
+      Handler: s3object.lambda_handler
+      CodeUri: lambda/utils
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 360
+      Runtime: python3.9
 
   SNSTopic:
     Type: AWS::SNS::Topic
@@ -433,7 +376,7 @@ Resources:
                 Action: "logs:*"
                 Resource:
                     - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws-glue/*"
-
+                    
   GlueJob:
     Type: AWS::Glue::Job
     Properties:
@@ -462,7 +405,7 @@ Resources:
       DatabaseName: !Ref GlueDB
       Targets: 
         S3Targets: 
-          - Path: !Sub "s3://${pS3BucketName}/${pStageFolder}"
+          - Path: !Sub "s3://${pS3BucketName}/${pSourceFolder}"
 
   CrawlPartitionedFile:
     Type: "AWS::Glue::Crawler"
