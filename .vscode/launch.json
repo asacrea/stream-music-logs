@@ -1,0 +1,32 @@
+{
+    "configurations": [
+        {
+            "type": "aws-sam",
+            "request": "direct-invoke",
+            "name": "stream-music-logs-athena:LambdaFunctionS3Object",
+            "invokeTarget": {
+                "target": "template",
+                "templatePath": "${workspaceFolder}/stream-music-logs-athena/template.yaml",
+                "logicalId": "LambdaFunctionS3Object"
+            },
+            "lambda": {
+                "payload": {},
+                "environmentVariables": {}
+            }
+        },
+        {
+            "type": "aws-sam",
+            "request": "direct-invoke",
+            "name": "stream-music-logs-athena:LambdaFunctionS3Object",
+            "invokeTarget": {
+                "target": "template",
+                "templatePath": "${workspaceFolder}/stream-music-logs-athena/template.yaml",
+                "logicalId": "LambdaFunctionS3Object"
+            },
+            "lambda": {
+                "payload": {},
+                "environmentVariables": {}
+            }
+        }
+    ]
+}
