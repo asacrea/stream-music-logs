@@ -19,6 +19,16 @@ Parameters:
     Description: "Source Folder to upload raw json dataset to trigger the AWS Step functions"
     Default: "source"
 
+  pArchiveFolder:
+    Type: String
+    Description: "Folder to store archived dataset"
+    Default: "archive"
+
+  pErrorFolder:
+    Type: String
+    Description: "Folder to store dataset for any error"
+    Default: "error"
+
   pEmailforNotification:
     Description: "Valid email address to send success or error notification"
     Type: String
@@ -52,8 +62,8 @@ Resources:
 
         # Script generated for node S3 bucket
         music_table = glueContext.create_dynamic_frame.from_catalog(
-            database="gluedb-ylm7mfzhmkwk",
-            table_name="raw_streaming-listen_events",
+            database="${GlueDB}",
+            table_name="${pSourceFolder}",
             #transformation_ctx="S3bucket_node1",
         )
 
@@ -103,7 +113,7 @@ Resources:
         datasink = glueContext.write_dynamic_frame.from_options(
             frame=dfy,
             connection_type="s3",
-            connection_options={"path": "s3://de-streaming-test/stage/",
+            connection_options={"path": "s3://${pS3BucketName}/${pStageFolder}/",
                                 "compression": "snappy",
                                 "partitionKeys": ["year", "month", "day", "state", "city", "level", "gender"]},
             format="parquet",
@@ -239,6 +249,7 @@ Resources:
             Effect: "Allow"
             Action: "lambda:InvokeFunction"
             Resource:
+              - !GetAtt  ArchiveFunction.Arn
               - !GetAtt  StartCrawlerFunction.Arn
               - !GetAtt  CrawlerStatusCheckFunction.Arn
           - Sid: "glueaccess"
@@ -289,6 +300,19 @@ Resources:
       VersioningConfiguration:
         Status: Enabled
       BucketName: !Sub ${pS3BucketName}
+
+  ArchiveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Role: !GetAtt LambdaRole.Arn
+      Handler: move_file.lambda_handler
+      CodeUri: lambda/utils
+      Runtime: python3.9
+      Timeout: 30
+      Environment:
+        Variables:
+          archive_folder_name: !Ref pArchiveFolder
+          error_folder_name: !Ref pErrorFolder
 
   StartCrawlerFunction:
     Type: AWS::Serverless::Function
@@ -390,8 +414,8 @@ Resources:
         MaxConcurrentRuns: 20
       MaxRetries: 0
       Role: !Ref GlueRole
-      GlueVersion: "3.0"
-      NumberOfWorkers: 100
+      GlueVersion: "4.0"
+      NumberOfWorkers: 10
       WorkerType: G.1X
 
   CrawlRawFile:
@@ -459,7 +483,7 @@ Resources:
       TracingConfiguration:
         Enabled: true
       RoleArn: !GetAtt StepFunctionRole.Arn
-      DefinitionString: |
+      DefinitionString: !Sub |
         {
           "Comment": "ETL Music Log Streming",
           "StartAt": "Start Crawler For Raw File",

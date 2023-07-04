@@ -25,6 +25,8 @@ def lambda_handler(event, context):
                 s3.put_object(Bucket=the_bucket,
                               Key=(dir_name
                                  + '/'))
+            s3_resource.Object(the_bucket,file_prefix).put(Body=file_content)
+            print("file created")
               
         elif the_event == 'Delete':
             print("Deleting S3 content...")

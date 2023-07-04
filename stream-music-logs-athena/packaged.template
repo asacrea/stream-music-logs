@@ -9,15 +9,19 @@ Parameters:
     Type: String
     Description: Folder to store staging files
     Default: stage
-  pTransformFolder:
-    Type: String
-    Description: Folder to store transformed dataset
-    Default: transform
   pSourceFolder:
     Type: String
     Description: Source Folder to upload raw json dataset to trigger the AWS Step
       functions
     Default: source
+  pArchiveFolder:
+    Type: String
+    Description: Folder to store archived dataset
+    Default: archive
+  pErrorFolder:
+    Type: String
+    Description: Folder to store dataset for any error
+    Default: error
   pEmailforNotification:
     Description: Valid email address to send success or error notification
     Type: String
@@ -46,10 +50,10 @@ Resources:
           \ [\"JOB_NAME\"])\nsc = SparkContext()\nglueContext = GlueContext(sc)\n\
           spark = glueContext.spark_session\njob = Job(glueContext)\njob.init(args[\"\
           JOB_NAME\"], args)\n\n# Script generated for node S3 bucket\nmusic_table\
-          \ = glueContext.create_dynamic_frame.from_catalog(\n    database=\"gluedb-ylm7mfzhmkwk\"\
-          ,\n    table_name=\"raw_streaming-listen_events\",\n    #transformation_ctx=\"\
-          S3bucket_node1\",\n)\n\n#music_table.printSchema()\n\n# Convert the int\
-          \ field to a date field\ntransformed_date = ApplyMapping.apply(\n    frame=music_table,\n\
+          \ = glueContext.create_dynamic_frame.from_catalog(\n    database=\"${GlueDB}\"\
+          ,\n    table_name=\"${pSourceFolder}\",\n    #transformation_ctx=\"S3bucket_node1\"\
+          ,\n)\n\n#music_table.printSchema()\n\n# Convert the int field to a date\
+          \ field\ntransformed_date = ApplyMapping.apply(\n    frame=music_table,\n\
           \    mappings=[\n        (\"artist\", \"string\", \"artist\", \"string\"\
           ),\n        (\"song\", \"string\", \"song\", \"string\"),\n        (\"duration\"\
           , \"double\", \"duration\", \"double\"),\n        (\"ts\", \"long\", \"\
@@ -77,10 +81,11 @@ Resources:
           \ 'dd'))\n\n# Convert the data frame back to a dynamic frame\ndfy = DynamicFrame.fromDF(dataframe=music_table_df,\
           \ glue_ctx=glueContext, name=\"dfy\")\n\ndatasink = glueContext.write_dynamic_frame.from_options(\n\
           \    frame=dfy,\n    connection_type=\"s3\",\n    connection_options={\"\
-          path\": \"s3://de-streaming-test/stage/\",\n                        \"compression\"\
-          : \"snappy\",\n                        \"partitionKeys\": [\"year\", \"\
-          month\", \"day\", \"state\", \"city\", \"level\", \"gender\"]},\n    format=\"\
-          parquet\",\n    transformation_ctx=\"datasink\"\n)\n\njob.commit()\n"
+          path\": \"s3://${pS3BucketName}/${pStageFolder}/\",\n                  \
+          \      \"compression\": \"snappy\",\n                        \"partitionKeys\"\
+          : [\"year\", \"month\", \"day\", \"state\", \"city\", \"level\", \"gender\"\
+          ]},\n    format=\"parquet\",\n    transformation_ctx=\"datasink\"\n)\n\n\
+          job.commit()\n"
   KinesisFirehoseDeliveryStream:
     Type: AWS::KinesisFirehose::DeliveryStream
     DependsOn:
@@ -123,7 +128,7 @@ Resources:
             - s3:Put*
             - s3:Delete*
             Resource:
-            - arn:aws:s3:::${pS3BucketName}/*
+            - Fn::Sub: arn:aws:s3:::${pS3BucketName}/*
   LambdaLayerParameter:
     Type: AWS::SSM::Parameter
     Properties:
@@ -213,6 +218,9 @@ Resources:
           Action: lambda:InvokeFunction
           Resource:
           - Fn::GetAtt:
+            - ArchiveFunction
+            - Arn
+          - Fn::GetAtt:
             - StartCrawlerFunction
             - Arn
           - Fn::GetAtt:
@@ -246,7 +254,7 @@ Resources:
       - Ref: LambdaLayerCfn
       Description: Work with S3 Buckets!
       Handler: s3object.lambda_handler
-      CodeUri: s3://aws-cloud-formation-artifacts/5fab8f5e450a09f3f4862eedccbd8690
+      CodeUri: s3://aws-cloud-formation-artifacts/921bf2181f4aa74fe8bab838a8ce1d63
       Role:
         Fn::GetAtt:
         - LambdaRole
@@ -268,6 +276,23 @@ Resources:
         Status: Enabled
       BucketName:
         Fn::Sub: ${pS3BucketName}
+  ArchiveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Role:
+        Fn::GetAtt:
+        - LambdaRole
+        - Arn
+      Handler: move_file.lambda_handler
+      CodeUri: s3://aws-cloud-formation-artifacts/921bf2181f4aa74fe8bab838a8ce1d63
+      Runtime: python3.9
+      Timeout: 30
+      Environment:
+        Variables:
+          archive_folder_name:
+            Ref: pArchiveFolder
+          error_folder_name:
+            Ref: pErrorFolder
   StartCrawlerFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -276,7 +301,7 @@ Resources:
         - LambdaRole
         - Arn
       Handler: start_crawler.lambda_handler
-      CodeUri: s3://aws-cloud-formation-artifacts/5fab8f5e450a09f3f4862eedccbd8690
+      CodeUri: s3://aws-cloud-formation-artifacts/921bf2181f4aa74fe8bab838a8ce1d63
       Runtime: python3.9
       Timeout: 60
   CrawlerStatusCheckFunction:
@@ -287,7 +312,7 @@ Resources:
         - LambdaRole
         - Arn
       Handler: check_crawler.lambda_handler
-      CodeUri: s3://aws-cloud-formation-artifacts/5fab8f5e450a09f3f4862eedccbd8690
+      CodeUri: s3://aws-cloud-formation-artifacts/921bf2181f4aa74fe8bab838a8ce1d63
       Runtime: python3.9
       Timeout: 30
       Environment:
@@ -372,8 +397,8 @@ Resources:
       MaxRetries: 0
       Role:
         Ref: GlueRole
-      GlueVersion: '3.0'
-      NumberOfWorkers: 100
+      GlueVersion: '4.0'
+      NumberOfWorkers: 10
       WorkerType: G.1X
   CrawlRawFile:
     Type: AWS::Glue::Crawler
@@ -389,7 +414,7 @@ Resources:
       Targets:
         S3Targets:
         - Path:
-            Fn::Sub: s3://${pS3BucketName}/${pStageFolder}
+            Fn::Sub: s3://${pS3BucketName}/${pSourceFolder}
   CrawlPartitionedFile:
     Type: AWS::Glue::Crawler
     Properties:
@@ -454,116 +479,120 @@ Resources:
         Fn::GetAtt:
         - StepFunctionRole
         - Arn
-      DefinitionString: "{\n  \"Comment\": \"ETL Music Log Streming\",\n  \"StartAt\"\
-        : \"Start Crawler For Raw File\",\n  \"States\": {\n    \"Start Crawler For\
-        \ Raw File\": {\n      \"Type\": \"Task\",\n      \"ResultPath\": \"$.taskresult\"\
-        ,\n      \"ResultSelector\": {\n          \"cnt\": \"0\",\n          \"crawler_name\"\
-        : \"${CrawlRawFile}\"\n      },\n      \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${StartCrawlerFunction}\"\
-        ,\n      \"Parameters\": {\n          \"Crawler_Name\": \"${CrawlRawFile}\"\
-        \n      },\n      \"Retry\": [\n          {\n              \"ErrorEquals\"\
-        : [\n                  \"CrawlerRunningException\"\n              ],\n   \
-        \           \"IntervalSeconds\": 10,\n              \"MaxAttempts\": 10,\n\
-        \              \"BackoffRate\": 2\n          }\n      ],\n      \"Catch\"\
-        : [\n          {\n              \"ErrorEquals\": [\n                  \"CrawlerRunningException\"\
-        \n              ],\n              \"Comment\": \"Crawler is running for long\
-        \ time\",\n              \"Next\": \"FAIL - Move file to error folder\"\n\
-        \          },\n          {\n              \"ErrorEquals\": [\n           \
-        \       \"States.ALL\"\n              ],\n              \"Comment\": \"Error\
-        \ fall back\",\n              \"ResultPath\": \"$.error-info\",\n        \
-        \      \"Next\": \"Handle Failure\"\n          }\n      ],\n      \"Next\"\
-        : \"Raw File Crawler Status Check\"\n    },\n    \"Raw File Crawler Status\
-        \ Check\": {\n        \"Type\": \"Task\",\n        \"InputPath\": \"$.taskresult\"\
-        ,\n        \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CrawlerStatusCheckFunction}\"\
-        ,\n        \"Next\": \"Raw File Crawler Finished?\",\n        \"ResultPath\"\
-        : \"$.taskresult\"\n    },\n    \"Raw File Crawler Finished?\": {\n      \
-        \  \"Type\": \"Choice\",\n        \"Choices\": [\n            {\n        \
-        \        \"Or\": [\n                    {\n                        \"Variable\"\
-        : \"$.taskresult.Status\",\n                        \"StringEquals\": \"STOPPING\"\
-        \n                    },\n                    {\n                        \"\
-        Variable\": \"$.taskresult.Status\",\n                        \"StringEquals\"\
-        : \"RUNNING\"\n                    }\n                ],\n               \
-        \ \"Next\": \"Raw File Crawler Wait\"\n            },\n            {\n   \
-        \             \"Variable\": \"$.taskresult.Status\",\n                \"StringEquals\"\
-        : \"READY\",\n                \"Next\": \"Run Glue Job\"\n            },\n\
-        \            {\n                \"Variable\": \"$.taskresult.Status\",\n \
-        \               \"StringEquals\": \"RETRYLIMITREACH\",\n                \"\
-        Next\": \"Handle Failure\"\n            },\n            {\n              \
-        \  \"Variable\": \"$.taskresult.Status\",\n                \"StringEquals\"\
-        : \"FAILED\",\n                \"Next\": \"Handle Failure\"\n            }\n\
-        \        ],\n        \"Default\": \"Handle Failure\"\n    },\n    \"Raw File\
-        \ Crawler Wait\": {\n        \"Type\": \"Wait\",\n        \"Seconds\": 30,\n\
-        \        \"Next\": \"Raw File Crawler Status Check\"\n    },\n    \"Handle\
-        \ Failure\": {\n      \"Type\": \"Pass\",\n      \"Parameters\": {\n     \
-        \   \"StateMachineName.$\": \"$$.StateMachine.Name\",\n        \"ExecutionName.$\"\
-        : \"$$.Execution.Name\",\n        \"ExecutionTime.$\": \"$$.Execution.StartTime\"\
-        ,\n        \"ErrorMessage\": \"An error ocurred in the ETL Job\",\n      \
-        \  \"FailedTaskName.$\": \"$$.State.Name\"\n      },\n      \"ResultPath\"\
-        : \"$.taskresult\",\n      \"Next\": \"FAIL - Move file to error folder\"\n\
-        \    },\n    \"FAIL - Move file to error folder\": {\n        \"Type\": \"\
-        Task\",\n        \"Next\": \"Error Notification\",\n        \"Resource\":\
-        \ \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ArchiveFunction}\"\
-        \n    },\n    \"Error Notification\": {\n      \"Type\": \"Task\",\n     \
-        \ \"Resource\": \"arn:aws:states:::aws-sdk:sns:publish\",\n      \"Parameters\"\
-        : {\n        \"Message.$\": \"States.Format('Error: {}, StateMachine:{}, Name:\
-        \ {}, Time: {}, Task: {}', $.taskresult.ErrorMessage, $.taskresult.StateMachineName,\
-        \ $.taskresult.ExecutionName, $.taskresult.ExecutionTime ,$.taskresult.FailedTaskName)\"\
-        ,\n        \"TopicArn\": \"${SNSTopic}\"\n      },\n      \"Next\": \"Fail\"\
-        \n    },\n    \"Run Glue Job\": {\n        \"Type\": \"Task\",\n        \"\
-        Next\": \"Start Crawler For Partitioned File\",\n        \"ResultPath\": null,\n\
-        \        \"Resource\": \"arn:aws:states:::glue:startJobRun.sync\",\n     \
-        \   \"Parameters\": {\n            \"JobName\": \"${GlueJob}\"\n        },\n\
-        \    \"Catch\": [\n            {\n                \"ErrorEquals\": [\n   \
-        \                 \"States.ALL\"\n                ],\n                \"Comment\"\
-        : \"Error fall back for glue job\",\n                \"ResultPath\": \"$.error-info\"\
-        ,\n                \"Next\": \"Handle Failure\"\n            }\n        ]\n\
-        \    },\n    \"Start Crawler For Partitioned File\": {\n        \"Type\":\
-        \ \"Task\",\n        \"ResultPath\": \"$.taskresult\",\n        \"ResultSelector\"\
-        : {\n            \"cnt\": \"0\",\n            \"crawler_name\": \"${CrawlPartitionedFile}\"\
-        \n        },\n        \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${StartCrawlerFunction}\"\
-        ,\n        \"Parameters\": {\n            \"Crawler_Name\": \"${CrawlPartitionedFile}\"\
-        \n        },\n        \"Retry\": [\n            {\n                \"ErrorEquals\"\
-        : [\n                    \"CrawlerRunningException\"\n                ],\n\
-        \                \"IntervalSeconds\": 10,\n                \"MaxAttempts\"\
-        : 10,\n                \"BackoffRate\": 2\n            }\n        ],\n   \
-        \     \"Catch\": [\n            {\n                \"ErrorEquals\": [\n  \
-        \                  \"CrawlerRunningException\"\n                ],\n     \
-        \           \"Comment\": \"Crawler is running for long time\",\n         \
-        \       \"Next\": \"Handle Failure\"\n            },\n            {\n    \
-        \            \"ErrorEquals\": [\n                    \"States.ALL\"\n    \
-        \            ],\n                \"Comment\": \"Error fall back\",\n     \
-        \           \"ResultPath\": \"$.error-info\",\n                \"Next\": \"\
-        Handle Failure\"\n            }\n        ],\n        \"Next\": \"Partitioned\
-        \ File Crawler Status Check\"\n    },\n    \"Partitioned File Crawler Status\
-        \ Check\": {\n        \"Type\": \"Task\",\n        \"InputPath\": \"$.taskresult\"\
-        ,\n        \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CrawlerStatusCheckFunction}\"\
-        ,\n        \"Next\": \"Partitioned File Crawler Finished?\",\n        \"ResultPath\"\
-        : \"$.taskresult\"\n    },\n    \"Partitioned File Crawler Finished?\": {\n\
-        \        \"Type\": \"Choice\",\n        \"Choices\": [\n            {\n  \
-        \              \"Or\": [\n                    {\n                        \"\
-        Variable\": \"$.taskresult.Status\",\n                        \"StringEquals\"\
-        : \"STOPPING\"\n                    },\n                    {\n          \
-        \              \"Variable\": \"$.taskresult.Status\",\n                  \
-        \      \"StringEquals\": \"RUNNING\"\n                    }\n            \
-        \    ],\n                \"Next\": \"Partitioned File Crawler Wait\"\n   \
-        \         },\n            {\n                \"Variable\": \"$.taskresult.Status\"\
-        ,\n                \"StringEquals\": \"READY\",\n                \"Next\"\
-        : \"Move file to archive\"\n            },\n            {\n              \
-        \  \"Variable\": \"$.taskresult.Status\",\n                \"StringEquals\"\
-        : \"RETRYLIMITREACH\",\n                \"Next\": \"Handle Failure\"\n   \
-        \         },\n            {\n                \"Variable\": \"$.taskresult.Status\"\
-        ,\n                \"StringEquals\": \"FAILED\",\n                \"Next\"\
-        : \"Handle Failure\"\n            }\n        ],\n        \"Default\": \"Handle\
-        \ Failure\"\n    },\n    \"Partitioned File Crawler Wait\": {\n        \"\
-        Type\": \"Wait\",\n        \"Seconds\": 30,\n        \"Next\": \"Partitioned\
-        \ File Crawler Status Check\"\n    },\n    \"Fail\": {\n        \"Type\":\
-        \ \"Fail\",\n        \"Cause\": \"validation failed\",\n        \"Error\"\
-        : \"ValidationError\"\n    },\n    \"Move file to archive\": {\n        \"\
-        Type\": \"Task\",\n        \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ArchiveFunction}\"\
-        ,\n        \"Next\": \"Success Notification\"\n    },\n    \"Success Notification\"\
-        : {\n        \"Type\": \"Task\",\n        \"Resource\": \"arn:aws:states:::aws-sdk:sns:publish\"\
-        ,\n        \"Parameters\": {\n                \"Message.$\": \"$\",\n    \
-        \            \"TopicArn\": \"${SNSTopic}\"\n        },\n        \"End\": true\n\
-        \    }\n  }\n}\n"
+      DefinitionString:
+        Fn::Sub: "{\n  \"Comment\": \"ETL Music Log Streming\",\n  \"StartAt\": \"\
+          Start Crawler For Raw File\",\n  \"States\": {\n    \"Start Crawler For\
+          \ Raw File\": {\n      \"Type\": \"Task\",\n      \"ResultPath\": \"$.taskresult\"\
+          ,\n      \"ResultSelector\": {\n          \"cnt\": \"0\",\n          \"\
+          crawler_name\": \"${CrawlRawFile}\"\n      },\n      \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${StartCrawlerFunction}\"\
+          ,\n      \"Parameters\": {\n          \"Crawler_Name\": \"${CrawlRawFile}\"\
+          \n      },\n      \"Retry\": [\n          {\n              \"ErrorEquals\"\
+          : [\n                  \"CrawlerRunningException\"\n              ],\n \
+          \             \"IntervalSeconds\": 10,\n              \"MaxAttempts\": 10,\n\
+          \              \"BackoffRate\": 2\n          }\n      ],\n      \"Catch\"\
+          : [\n          {\n              \"ErrorEquals\": [\n                  \"\
+          CrawlerRunningException\"\n              ],\n              \"Comment\":\
+          \ \"Crawler is running for long time\",\n              \"Next\": \"FAIL\
+          \ - Move file to error folder\"\n          },\n          {\n           \
+          \   \"ErrorEquals\": [\n                  \"States.ALL\"\n             \
+          \ ],\n              \"Comment\": \"Error fall back\",\n              \"\
+          ResultPath\": \"$.error-info\",\n              \"Next\": \"Handle Failure\"\
+          \n          }\n      ],\n      \"Next\": \"Raw File Crawler Status Check\"\
+          \n    },\n    \"Raw File Crawler Status Check\": {\n        \"Type\": \"\
+          Task\",\n        \"InputPath\": \"$.taskresult\",\n        \"Resource\"\
+          : \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CrawlerStatusCheckFunction}\"\
+          ,\n        \"Next\": \"Raw File Crawler Finished?\",\n        \"ResultPath\"\
+          : \"$.taskresult\"\n    },\n    \"Raw File Crawler Finished?\": {\n    \
+          \    \"Type\": \"Choice\",\n        \"Choices\": [\n            {\n    \
+          \            \"Or\": [\n                    {\n                        \"\
+          Variable\": \"$.taskresult.Status\",\n                        \"StringEquals\"\
+          : \"STOPPING\"\n                    },\n                    {\n        \
+          \                \"Variable\": \"$.taskresult.Status\",\n              \
+          \          \"StringEquals\": \"RUNNING\"\n                    }\n      \
+          \          ],\n                \"Next\": \"Raw File Crawler Wait\"\n   \
+          \         },\n            {\n                \"Variable\": \"$.taskresult.Status\"\
+          ,\n                \"StringEquals\": \"READY\",\n                \"Next\"\
+          : \"Run Glue Job\"\n            },\n            {\n                \"Variable\"\
+          : \"$.taskresult.Status\",\n                \"StringEquals\": \"RETRYLIMITREACH\"\
+          ,\n                \"Next\": \"Handle Failure\"\n            },\n      \
+          \      {\n                \"Variable\": \"$.taskresult.Status\",\n     \
+          \           \"StringEquals\": \"FAILED\",\n                \"Next\": \"\
+          Handle Failure\"\n            }\n        ],\n        \"Default\": \"Handle\
+          \ Failure\"\n    },\n    \"Raw File Crawler Wait\": {\n        \"Type\"\
+          : \"Wait\",\n        \"Seconds\": 30,\n        \"Next\": \"Raw File Crawler\
+          \ Status Check\"\n    },\n    \"Handle Failure\": {\n      \"Type\": \"\
+          Pass\",\n      \"Parameters\": {\n        \"StateMachineName.$\": \"$$.StateMachine.Name\"\
+          ,\n        \"ExecutionName.$\": \"$$.Execution.Name\",\n        \"ExecutionTime.$\"\
+          : \"$$.Execution.StartTime\",\n        \"ErrorMessage\": \"An error ocurred\
+          \ in the ETL Job\",\n        \"FailedTaskName.$\": \"$$.State.Name\"\n \
+          \     },\n      \"ResultPath\": \"$.taskresult\",\n      \"Next\": \"FAIL\
+          \ - Move file to error folder\"\n    },\n    \"FAIL - Move file to error\
+          \ folder\": {\n        \"Type\": \"Task\",\n        \"Next\": \"Error Notification\"\
+          ,\n        \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ArchiveFunction}\"\
+          \n    },\n    \"Error Notification\": {\n      \"Type\": \"Task\",\n   \
+          \   \"Resource\": \"arn:aws:states:::aws-sdk:sns:publish\",\n      \"Parameters\"\
+          : {\n        \"Message.$\": \"States.Format('Error: {}, StateMachine:{},\
+          \ Name: {}, Time: {}, Task: {}', $.taskresult.ErrorMessage, $.taskresult.StateMachineName,\
+          \ $.taskresult.ExecutionName, $.taskresult.ExecutionTime ,$.taskresult.FailedTaskName)\"\
+          ,\n        \"TopicArn\": \"${SNSTopic}\"\n      },\n      \"Next\": \"Fail\"\
+          \n    },\n    \"Run Glue Job\": {\n        \"Type\": \"Task\",\n       \
+          \ \"Next\": \"Start Crawler For Partitioned File\",\n        \"ResultPath\"\
+          : null,\n        \"Resource\": \"arn:aws:states:::glue:startJobRun.sync\"\
+          ,\n        \"Parameters\": {\n            \"JobName\": \"${GlueJob}\"\n\
+          \        },\n    \"Catch\": [\n            {\n                \"ErrorEquals\"\
+          : [\n                    \"States.ALL\"\n                ],\n          \
+          \      \"Comment\": \"Error fall back for glue job\",\n                \"\
+          ResultPath\": \"$.error-info\",\n                \"Next\": \"Handle Failure\"\
+          \n            }\n        ]\n    },\n    \"Start Crawler For Partitioned\
+          \ File\": {\n        \"Type\": \"Task\",\n        \"ResultPath\": \"$.taskresult\"\
+          ,\n        \"ResultSelector\": {\n            \"cnt\": \"0\",\n        \
+          \    \"crawler_name\": \"${CrawlPartitionedFile}\"\n        },\n       \
+          \ \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${StartCrawlerFunction}\"\
+          ,\n        \"Parameters\": {\n            \"Crawler_Name\": \"${CrawlPartitionedFile}\"\
+          \n        },\n        \"Retry\": [\n            {\n                \"ErrorEquals\"\
+          : [\n                    \"CrawlerRunningException\"\n                ],\n\
+          \                \"IntervalSeconds\": 10,\n                \"MaxAttempts\"\
+          : 10,\n                \"BackoffRate\": 2\n            }\n        ],\n \
+          \       \"Catch\": [\n            {\n                \"ErrorEquals\": [\n\
+          \                    \"CrawlerRunningException\"\n                ],\n \
+          \               \"Comment\": \"Crawler is running for long time\",\n   \
+          \             \"Next\": \"Handle Failure\"\n            },\n           \
+          \ {\n                \"ErrorEquals\": [\n                    \"States.ALL\"\
+          \n                ],\n                \"Comment\": \"Error fall back\",\n\
+          \                \"ResultPath\": \"$.error-info\",\n                \"Next\"\
+          : \"Handle Failure\"\n            }\n        ],\n        \"Next\": \"Partitioned\
+          \ File Crawler Status Check\"\n    },\n    \"Partitioned File Crawler Status\
+          \ Check\": {\n        \"Type\": \"Task\",\n        \"InputPath\": \"$.taskresult\"\
+          ,\n        \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CrawlerStatusCheckFunction}\"\
+          ,\n        \"Next\": \"Partitioned File Crawler Finished?\",\n        \"\
+          ResultPath\": \"$.taskresult\"\n    },\n    \"Partitioned File Crawler Finished?\"\
+          : {\n        \"Type\": \"Choice\",\n        \"Choices\": [\n           \
+          \ {\n                \"Or\": [\n                    {\n                \
+          \        \"Variable\": \"$.taskresult.Status\",\n                      \
+          \  \"StringEquals\": \"STOPPING\"\n                    },\n            \
+          \        {\n                        \"Variable\": \"$.taskresult.Status\"\
+          ,\n                        \"StringEquals\": \"RUNNING\"\n             \
+          \       }\n                ],\n                \"Next\": \"Partitioned File\
+          \ Crawler Wait\"\n            },\n            {\n                \"Variable\"\
+          : \"$.taskresult.Status\",\n                \"StringEquals\": \"READY\"\
+          ,\n                \"Next\": \"Move file to archive\"\n            },\n\
+          \            {\n                \"Variable\": \"$.taskresult.Status\",\n\
+          \                \"StringEquals\": \"RETRYLIMITREACH\",\n              \
+          \  \"Next\": \"Handle Failure\"\n            },\n            {\n       \
+          \         \"Variable\": \"$.taskresult.Status\",\n                \"StringEquals\"\
+          : \"FAILED\",\n                \"Next\": \"Handle Failure\"\n          \
+          \  }\n        ],\n        \"Default\": \"Handle Failure\"\n    },\n    \"\
+          Partitioned File Crawler Wait\": {\n        \"Type\": \"Wait\",\n      \
+          \  \"Seconds\": 30,\n        \"Next\": \"Partitioned File Crawler Status\
+          \ Check\"\n    },\n    \"Fail\": {\n        \"Type\": \"Fail\",\n      \
+          \  \"Cause\": \"validation failed\",\n        \"Error\": \"ValidationError\"\
+          \n    },\n    \"Move file to archive\": {\n        \"Type\": \"Task\",\n\
+          \        \"Resource\": \"arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ArchiveFunction}\"\
+          ,\n        \"Next\": \"Success Notification\"\n    },\n    \"Success Notification\"\
+          : {\n        \"Type\": \"Task\",\n        \"Resource\": \"arn:aws:states:::aws-sdk:sns:publish\"\
+          ,\n        \"Parameters\": {\n                \"Message.$\": \"$\",\n  \
+          \              \"TopicArn\": \"${SNSTopic}\"\n        },\n        \"End\"\
+          : true\n    }\n  }\n}\n"
 Outputs:
   GlueDBOutput:
     Description: GlueDB Name

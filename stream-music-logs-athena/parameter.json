@@ -16,6 +16,14 @@
       "ParameterValue": "stage"
     },
     {
+      "ParameterKey": "pErrorFolder",
+      "ParameterValue": "error"
+    },
+    {
+      "ParameterKey": "pArchiveFolder",
+      "ParameterValue": "archive"
+    },
+    {
       "ParameterKey": "pEmailforNotification",
       "ParameterValue": "sacreandres@gmail.com" 
     }
